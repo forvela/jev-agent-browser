@@ -4,11 +4,11 @@
 
 Give an agent a goal. Jev chooses the next typed browser action. `agent-browser` executes it. Your parent agent gets a structured result back.
 
-![jev-agent-browser demo](media/huggingface-filter-demo.gif)
+![jev-agent-browser demo](https://raw.githubusercontent.com/forvela/jev-agent-browser/main/media/huggingface-filter-demo.gif)
 
 A real 17-second, read-only walkthrough: Tasks → Text Classification → Most downloads → PyTorch → `ProsusAI/finbert` → back.
 
-[Watch the full MP4 demo](media/huggingface-filter-demo.mp4) · [Open the original WebM recording](media/huggingface-filter-demo.webm)
+[Watch the full MP4 demo](https://github.com/forvela/jev-agent-browser/blob/main/media/huggingface-filter-demo.mp4) · [Open the original WebM recording](https://github.com/forvela/jev-agent-browser/blob/main/media/huggingface-filter-demo.webm)
 
 ## Quick start
 
