@@ -1,0 +1,11 @@
+<!doctype html>
+<html><body>
+  <h1>Jev browser loop fixture</h1>
+  <label>Name <input id="name" placeholder="Your name"></label>
+  <select id="color"><option>blue</option><option>green</option></select>
+  <button id="continue">Continue</button>
+  <p id="result" aria-live="polite"></p>
+  <script>
+    document.querySelector('#continue').onclick = () => { document.querySelector('#result').textContent = 'done'; };
+  </script>
+</body></html>

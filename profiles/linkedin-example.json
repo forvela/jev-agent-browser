@@ -1,0 +1,80 @@
+{
+  "goal": "Find legitimate hiring signals for a technical role using bounded, read-only LinkedIn evidence.",
+  "context": "Use both the post and configured profile evidence. Explicit profile location and open-to-work status override broad post claims. Never infer identity, nationality, or location from a person's name. Reject self-promotion, services advertising, unrelated content, and unclear staffing funnels. Keep borderline items for verification; never apply or contact automatically.",
+  "evidenceFields": ["profile_evidence"],
+  "overrides": [
+    {
+      "when": { "field": "profile_evidence.profile_text", "matches": "Open to Work|В поиске работы|looking for (a )?new opportunity|open to (new )?opportunities" },
+      "set": { "labels": { "hiring_signal": "not_hiring", "source_type": "job_seeker", "post_intent": "job_seeker", "recommendation": "reject" } },
+      "reason": "explicit-profile-job-seeker"
+    }
+  ],
+  "dimensions": {
+    "hiring_signal": {
+      "instructions": "Using the post and profile evidence, is this a concrete current hiring opportunity rather than a job-market article, candidate self-promotion, services advertisement, or unrelated post?",
+      "choices": {
+        "real_hiring": "A concrete current role or hiring announcement.",
+        "not_hiring": "Not a current hiring opportunity.",
+        "unclear": "Evidence is insufficient."
+      }
+    },
+    "geo_fit": {
+      "instructions": "Classify geography and remote eligibility using only explicit post text and configured profile evidence. Inspect profile evidence first. Never infer nationality or location from a name.",
+      "choices": {
+        "target_region_explicit": "Explicitly accepts the configured target region.",
+        "worldwide": "Explicitly worldwide/global remote without a conflicting restriction.",
+        "local_only": "Restricted to a specific incompatible country, city, visa, or timezone.",
+        "unclear": "Geography is not sufficiently explicit."
+      }
+    },
+    "role_fit": {
+      "instructions": "Classify fit for the configured technical role without inferring personal attributes.",
+      "choices": {
+        "strong": "Strong overlap with the configured role.",
+        "adjacent": "Some useful overlap but material uncertainty remains.",
+        "weak": "Little relevant overlap or clearly mismatched role."
+      }
+    },
+    "source_quality": {
+      "instructions": "Classify the source and route conservatively, using profile headline/about/role evidence to distinguish employer, recruiter/intermediary, job seeker, and aggregator.",
+      "choices": {
+        "direct_company": "Employer/company source with a credible direct route.",
+        "credible_recruiter": "Identifiable recruiter with a concrete role and route.",
+        "aggregator": "Repost, job board, or unclear intermediary.",
+        "unclear": "Source quality cannot be established."
+      }
+    },
+    "source_type": {
+      "instructions": "Who is publishing this signal? Use the profile evidence when available. If the profile says Open to Work, В поиске работы, available for opportunities, or equivalent, choose job_seeker even if the post contains a copied vacancy.",
+      "choices": {
+        "employer": "The author represents the hiring company or team.",
+        "recruiter_intermediary": "Recruiter, staffing firm, talent agency, or intermediary.",
+        "job_seeker": "Person advertising their own availability or seeking work.",
+        "community_aggregator": "Community, repost account, job board, or unclear aggregator.",
+        "unknown": "Insufficient evidence."
+      }
+    },
+    "post_intent": {
+      "instructions": "What is the post trying to do: offer work or seek work? Explicit profile status such as Open to Work or В поиске работы means job_seeker unless the author clearly represents an employer hiring team.",
+      "choices": {
+        "hiring_offer": "Offers a concrete role or asks for candidates.",
+        "job_seeker": "The author presents themselves as available/open to work.",
+        "market_or_advice": "Market commentary, advice, or general trend content.",
+        "service_pitch": "Sells recruiting, staffing, or another service without a concrete role.",
+        "unclear": "Intent cannot be established."
+      }
+    },
+    "recommendation": {
+      "instructions": "Choose the safest next triage action. Reject job-seeker posts and explicit incompatible locations; do not invent missing verification.",
+      "choices": {
+        "retain": "Keep as a qualified candidate for storage or later verification.",
+        "verify": "Keep, but require explicit verification before any action.",
+        "reject": "Do not retain as a target under this profile."
+      }
+    }
+  },
+  "keep": {
+    "dimension": "recommendation",
+    "choices": ["retain", "verify"]
+  }
+}

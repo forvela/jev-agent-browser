@@ -1,0 +1,51 @@
+{
+  "name": "jev-agent-browser",
+  "version": "0.1.0",
+  "description": "Configurable Jev browser research and classification CLI",
+  "author": "forvela",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forvela/jev-agent-browser.git"
+  },
+  "bugs": {
+    "url": "https://github.com/forvela/jev-agent-browser/issues"
+  },
+  "type": "module",
+  "bin": {
+    "jev": "./src/cli.js"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "profiles",
+    "skills",
+    "fixture",
+    "agent-browser.json",
+    "README.md"
+  ],
+  "keywords": [
+    "jev",
+    "agent-browser",
+    "browser-automation",
+    "browser-agent",
+    "research",
+    "classification",
+    "cli"
+  ],
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0"
+  },
+  "peerDependencies": {
+    "agent-browser": ">=0.38.1"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test",
+    "smoke": "node src/smoke.js"
+  }
+}
