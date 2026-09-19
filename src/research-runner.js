@@ -159,11 +159,16 @@ function readValue(item, path) {
   return String(path ?? '').split('.').filter(Boolean).reduce((value, key) => value?.[key], item);
 }
 
-function allowedFollowUpTarget(target, hosts = []) {
-  if (!hosts?.length) return true;
+export function allowedFollowUpTarget(target, hosts = []) {
+  if (!Array.isArray(hosts) || !hosts.length) return false;
   try {
-    const hostname = new URL(target).hostname.toLowerCase();
-    return hosts.some((host) => hostname === host || hostname.endsWith(`.${host}`));
+    const url = new URL(target);
+    if (!['http:', 'https:'].includes(url.protocol)) return false;
+    const hostname = url.hostname.toLowerCase();
+    return hosts.some((host) => {
+      const allowed = String(host).toLowerCase().replace(/^\.+/, '');
+      return allowed && (hostname === allowed || hostname.endsWith(`.${allowed}`));
+    });
   } catch {
     return false;
   }

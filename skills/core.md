@@ -12,8 +12,9 @@ jev skills get core --full
 ```
 
 The CLI never invents personal or secret input values, never submits a
-commitment action without parent/user control, and never sends contact values
-or action URLs to Jev's Decisions API.
+commitment action without parent/user control. Classification requests omit contact
+fields from collected candidates, but bounded browser observations may contain page
+content and URLs sent to Jev's Decisions API.
 
 ## Modes
 

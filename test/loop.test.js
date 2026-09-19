@@ -6,7 +6,7 @@ import { buildCriteria, buildDecisionRequest, parseDecisionResponse, requestDeci
 import { normalizeFieldKey, runLoop } from '../src/loop.js';
 import { applyProfileOverrides, buildBatchClassificationRequest, parseBatchClassificationResponse } from '../src/classifier.js';
 import { enrichContactEvidence, keepClassifiedItems } from '../src/research.js';
-import { loadResearchConfig, runResearch } from '../src/research-runner.js';
+import { allowedFollowUpTarget, loadResearchConfig, runResearch } from '../src/research-runner.js';
 import * as publicApi from '../src/index.js';
 
 test('exposes a small programmatic API entrypoint', () => {
@@ -505,6 +505,14 @@ test('research mode runs configured tools before generic batch classification', 
   assert.equal(output.metrics.jevRequests, 3);
   assert.equal(output.classified[0].labels.decision, 'retain');
   assert.equal(output.enriched[0].contactEvidence.emails[0], 'hello@example.test');
+});
+
+test('follow-up targets require an explicit HTTP(S) host allowlist', () => {
+  assert.equal(allowedFollowUpTarget('https://example.test/profile', ['example.test']), true);
+  assert.equal(allowedFollowUpTarget('https://sub.example.test/profile', ['example.test']), true);
+  assert.equal(allowedFollowUpTarget('https://evil.test/profile', ['example.test']), false);
+  assert.equal(allowedFollowUpTarget('javascript:alert(1)', ['example.test']), false);
+  assert.equal(allowedFollowUpTarget('https://example.test/profile', []), false);
 });
 
 test('research follow-ups collect configured profile evidence before classification', async () => {

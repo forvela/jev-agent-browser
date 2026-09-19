@@ -122,7 +122,7 @@ See Jev's own benchmark and performance claims for model-level results. This pro
 - Stale refs, repeated actions, malformed decisions, and stuck states stop safely.
 - Input values are supplied by the parent and resolved locally.
 - Submit, register, apply, and similar commitment actions should remain behind parent or user confirmation.
-- The wrapper does not send email, phone numbers, or action URLs to the Decisions API.
+- Classification requests omit contact fields from collected candidates; bounded browser observations may still contain page content and URLs sent to the Decisions API.
 
 ## More
 
