@@ -13,7 +13,7 @@
   },
   "type": "module",
   "bin": {
-    "jev": "./src/cli.js"
+    "jev": "src/cli.js"
   },
   "exports": {
     ".": "./src/index.js",
