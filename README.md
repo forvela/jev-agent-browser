@@ -1,8 +1,10 @@
 # jev-agent-browser
 
-> Run fast, bounded browser agents with [Jev](https://typesafe.ai/) and [`agent-browser`](https://github.com/vercel-labs/agent-browser).
+[![npm version](https://img.shields.io/npm/v/jev-agent-browser.svg)](https://www.npmjs.com/package/jev-agent-browser) [![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Give an agent a goal. Jev chooses the next typed browser action. `agent-browser` executes it. Your parent agent gets a structured result back.
+> Fast, bounded browser execution for parent agents — powered by [Jev](https://typesafe.ai/) and [`agent-browser`](https://github.com/vercel-labs/agent-browser).
+
+Give a parent agent a bounded browser task. Jev chooses the next typed action. `agent-browser` executes it. Ambiguity, repetition, or a stuck state becomes a structured handoff back to the parent.
 
 ![jev-agent-browser demo](https://raw.githubusercontent.com/forvela/jev-agent-browser/main/media/huggingface-filter-demo.gif)
 
@@ -23,6 +25,12 @@ jev \
   --max-steps 6
 ```
 
+Or run the CLI without a global Jev install:
+
+```bash
+npx --package jev-agent-browser jev --help
+```
+
 `agent-browser` is an external peer tool; this package owns the decision loop and research tools, not the browser engine. API keys stay in environment variables; they are never part of the browser page or decision state.
 
 ## What it does
@@ -40,14 +48,33 @@ jev \
 - **Provider-flexible.** Uses the official TypeSafe SDK by default and can target compatible Decisions endpoints, including OpenRouter.
 - **CLI and Node.js API.** Use it from a shell, or embed the same loop in another agent.
 
+## Where it fits
+
+`jev-agent-browser` is a delegated executor, not another full browser-planning agent:
+
+1. A parent agent owns intent, permissions, and the bounded task.
+2. Jev selects one typed operation and target from the current snapshot.
+3. `agent-browser` performs the native browser action.
+4. The loop returns success or escalates a structured state to the parent when the task is ambiguous, repetitive, or blocked.
+
+```mermaid
+flowchart LR
+  P[Parent agent] -->|bounded task| L[Jev run loop]
+  L -->|snapshot + typed decision| B[agent-browser]
+  B -->|page state + action result| L
+  L -->|success or escalation| P
+```
+
+This keeps Jev fast and local to execution while the parent remains responsible for reasoning and side effects.
+
 ## Common use cases
 
-### Browse a real website
+### Real-site walkthrough
 
 ```bash
-jev --url https://example.com \
-  --goal 'Open the pricing page' \
-  --max-steps 5
+jev --url https://huggingface.co/models \
+  --goal 'Select Text Classification, sort by Most downloads, choose PyTorch, inspect ProsusAI/finbert, then go back and stop.' \
+  --max-steps 12
 ```
 
 ### Attach to an existing Chrome tab
