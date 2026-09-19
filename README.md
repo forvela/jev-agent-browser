@@ -128,8 +128,7 @@ See Jev's own benchmark and performance claims for model-level results. This pro
 
 - [Full agent-facing skill](skills/core.md)
 - [Profiles](profiles/)
-- [OpenSpec design](openspec/changes/unify-generic-research-cli/design.md)
 
-## Status
+## License
 
-Early public package. The CLI and Node API are usable now; the real-site walkthrough above is recorded from the external `agent-browser` integration.
+[MIT](LICENSE)
