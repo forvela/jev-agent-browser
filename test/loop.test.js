@@ -1,13 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AgentBrowser, actionArgs, browserCommandArgs, normalizeSnapshot } from '../src/browser.js';
-import { applyCliConfig, parseArgs, runSkillsCommand, validateOptions } from '../src/cli.js';
+import { applyCliConfig, isSuccessfulExit, parseArgs, runSkillsCommand, validateOptions } from '../src/cli.js';
 import { buildCriteria, buildDecisionRequest, parseDecisionResponse, requestDecision } from '../src/decision.js';
 import { normalizeFieldKey, runLoop } from '../src/loop.js';
 import { applyProfileOverrides, buildBatchClassificationRequest, parseBatchClassificationResponse } from '../src/classifier.js';
 import { enrichContactEvidence, keepClassifiedItems } from '../src/research.js';
 import { allowedFollowUpTarget, loadResearchConfig, runResearch } from '../src/research-runner.js';
 import * as publicApi from '../src/index.js';
+
+test('treats bounded limit as a non-error CLI exit', () => {
+  assert.equal(isSuccessfulExit('success'), true);
+  assert.equal(isSuccessfulExit('limit'), true);
+  assert.equal(isSuccessfulExit('blocked'), false);
+  assert.equal(isSuccessfulExit('error'), false);
+});
 
 test('applies decision defaults from a CLI config without storing the key', () => {
   const options = applyCliConfig(parseArgs(['--goal', 'inspect']), {

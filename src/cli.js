@@ -66,6 +66,10 @@ export function applyCliConfig(options, config = {}) {
   };
 }
 
+export function isSuccessfulExit(status) {
+  return status === 'success' || status === 'limit';
+}
+
 export function validateOptions(options) {
   if (options.mode === 'classify') {
     if (!options.profilejson) throw new Error('--profile-json is required in classify mode');
@@ -287,7 +291,7 @@ if (isMainModule()) {
     } else {
       console.log(JSON.stringify(result));
     }
-    process.exitCode = result.status === 'success' ? 0 : 1;
+    process.exitCode = isSuccessfulExit(result.status) ? 0 : 1;
   } catch (error) {
     if (jsonl) writeJsonl({ type: 'error', message: error.message });
     else console.error(`jev-agent-browser: ${error.message}`);
