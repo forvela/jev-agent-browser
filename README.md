@@ -51,7 +51,20 @@ Jev loads `~/.config/jev/config.json` automatically for the normal browser loop.
 }
 ```
 
-`actionDelayMs` is optional and defaults to `0`; it delays only between successful browser actions. Use `--action-delay 0` to override it for a single run. Use another file with `--config ./jev.config.json`, or set `JEV_CONFIG`. Inject the key separately, for example with `op run`:
+`actionDelayMs` is optional and defaults to `0`; it delays only between successful browser actions. Use `--action-delay 0` to override it for a single run. Configured `tools` are exposed to Jev as bounded `RUN_TOOL` choices; tool paths are resolved relative to the config file.
+
+```json
+{
+  "tools": {
+    "scroll_to_bottom": {
+      "path": "/path/to/browser-strategies/linkedin/scroll-to-bottom.js",
+      "description": "On a LinkedIn page, jump to the current feed bottom without opening links"
+    }
+  }
+}
+```
+
+Use another file with `--config ./jev.config.json`, or set `JEV_CONFIG`. Inject the key separately, for example with `op run`:
 
 ```bash
 op run --env-file=<(printf 'OPENROUTER_API_KEY=op://Private/ITEM/credential\\n') -- \

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AgentBrowser, actionArgs, browserCommandArgs, normalizeSnapshot } from '../src/browser.js';
-import { applyCliConfig, isSuccessfulExit, parseArgs, runSkillsCommand, validateOptions } from '../src/cli.js';
+import { applyCliConfig, isSuccessfulExit, normalizeCliTools, parseArgs, runSkillsCommand, validateOptions } from '../src/cli.js';
 import { buildCriteria, buildDecisionRequest, parseDecisionResponse, requestDecision } from '../src/decision.js';
 import { normalizeFieldKey, runLoop } from '../src/loop.js';
 import { applyProfileOverrides, buildBatchClassificationRequest, parseBatchClassificationResponse } from '../src/classifier.js';
@@ -25,6 +25,13 @@ test('applies decision defaults from a CLI config without storing the key', () =
   assert.equal(options.apikeyenv, 'OPENROUTER_API_KEY');
   assert.equal(options.model, '~typesafe/jev-latest');
   assert.equal(options.maxSteps, 9);
+});
+
+test('normalizes config tools and makes them available to the loop', () => {
+  const tools = normalizeCliTools({ scroll: { path: '../portfolio/scroll.js', description: 'Scroll the feed' } }, '/tmp/jev/config.json');
+  assert.equal(tools.scroll.description, 'Scroll the feed');
+  assert.equal(tools.scroll.sourcePath, '/tmp/portfolio/scroll.js');
+  assert.deepEqual(applyCliConfig(parseArgs(['--goal', 'inspect']), { tools }).tools, tools);
 });
 
 test('applies action pacing from config with CLI precedence and bounded validation', () => {

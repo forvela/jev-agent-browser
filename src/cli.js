@@ -2,7 +2,7 @@
 import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentBrowser } from './browser.js';
 import { requestDecision } from './decision.js';
@@ -46,11 +46,26 @@ export async function loadCliConfig(configPath) {
   const defaultPath = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'jev', 'config.json');
   const path = configPath ?? process.env.JEV_CONFIG ?? defaultPath;
   try {
-    return JSON.parse(await readFile(path, 'utf8'));
+    const config = JSON.parse(await readFile(path, 'utf8'));
+    return { ...config, tools: normalizeCliTools(config.tools, path) };
   } catch (error) {
     if (!configPath && error.code === 'ENOENT') return {};
     throw new Error(`cannot read Jev config ${path}: ${error.message}`);
   }
+}
+
+export function normalizeCliTools(tools = {}, configPath = process.cwd()) {
+  if (!tools || typeof tools !== 'object' || Array.isArray(tools)) throw new Error('config tools must be an object');
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!tool || typeof tool !== 'object' || Array.isArray(tool)) throw new Error(`config tool ${name} must be an object`);
+    return [name, {
+      description: tool.description ?? name,
+      sourcePath: tool.path ? resolve(dirname(configPath), tool.path) : undefined,
+      source: tool.source,
+      config: tool.config,
+      collect: Boolean(tool.collect),
+    }];
+  }));
 }
 
 export function applyCliConfig(options, config = {}) {
@@ -64,6 +79,7 @@ export function applyCliConfig(options, config = {}) {
     apikeyenv: options.apikeyenv ?? decision.apiKeyEnv ?? config.apiKeyEnv,
     decisiontransport: options.decisiontransport ?? decision.transport ?? config.decisionTransport,
     actionDelayMs: options.actionDelayMs ?? config.pacing?.actionDelayMs ?? 0,
+    tools: options.tools ?? config.tools ?? {},
     maxSteps: options.maxSteps ?? config.maxSteps ?? 32,
   };
 }
@@ -264,9 +280,10 @@ if (isMainModule()) {
       else console.log(JSON.stringify(rendered));
       process.exit(0);
     }
-    options = applyCliConfig(options, await loadCliConfig(options.config));
+    const config = await loadCliConfig(options.config);
+    options = applyCliConfig(options, config);
     validateOptions(options);
-    const browser = new AgentBrowser({ command: options.browsercommand, session: options.session, cdp: options.cdp, autoConnect: options.autoConnect, pinTab: options.pinTab, browserArgs: options.browserArgs ?? [] });
+    const browser = new AgentBrowser({ command: options.browsercommand, session: options.session, cdp: options.cdp, autoConnect: options.autoConnect, pinTab: options.pinTab, browserArgs: options.browserArgs ?? [], tools: options.tools });
     const apiKey = process.env[options.apikeyenv ?? 'TYPESAFE_API_KEY'];
     if (options.url) await browser.open(options.url);
     const result = await runLoop({
@@ -285,6 +302,7 @@ if (isMainModule()) {
       maxRecoveryAttempts: options.maxRecoveryAttempts,
       maxSteps: options.maxSteps,
       actionDelayMs: options.actionDelayMs,
+      tools: options.tools,
       onEvent: options.jsonl ? writeJsonl : undefined,
       decide: ({ request }) => requestDecision({ apiKey, request, endpoint: options.endpoint, transport: options.decisiontransport ?? 'typesafe' }),
     });
