@@ -3,7 +3,9 @@ import { dirname, resolve } from 'node:path';
 import { applyProfileOverrides, buildBatchClassificationRequest, classifyBatch, DEFAULT_MAX_ITEMS, DEFAULT_MAX_TEXT_CHARS } from './classifier.js';
 import { requestDecision } from './decision.js';
 import { enrichContactEvidence, keepClassifiedItems } from './research.js';
-import { runLoop } from './loop.js';
+import { runLoop, validateActionDelayMs } from './loop.js';
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function loadResearchConfig(configPath) {
   const root = dirname(resolve(configPath));
@@ -31,8 +33,9 @@ export async function loadResearchConfig(configPath) {
   return { ...config, profile, queries, tools, followUps };
 }
 
-export async function runResearch({ config, browser, apiKey, endpoint, headers, transport = 'typesafe', model, onEvent, decide } = {}) {
+export async function runResearch({ config, browser, apiKey, endpoint, headers, transport = 'typesafe', model, actionDelayMs = config?.pacing?.actionDelayMs ?? 0, sleep, onEvent, decide } = {}) {
   if (!config?.profile) throw new Error('research config needs profile');
+  validateActionDelayMs(actionDelayMs);
   const decision = decide ?? ((options) => requestDecision({ ...options, headers, transport }));
   const started = Date.now();
   const collected = [];
@@ -54,6 +57,8 @@ export async function runResearch({ config, browser, apiKey, endpoint, headers, 
       historyLimit: config.historyLimit,
       repeatLimit: config.repeatLimit,
       maxRecoveryAttempts: config.maxRecoveryAttempts,
+      actionDelayMs,
+      sleep,
       onEvent: onEvent ? (event) => onEvent({ query: index, ...event }) : undefined,
       decide: decision,
     });
@@ -73,7 +78,7 @@ export async function runResearch({ config, browser, apiKey, endpoint, headers, 
     queryResults.push({ index, url: query.url, status: loopResult.status, reason: loopResult.reason, collected: items.length });
   }
 
-  const followUpResult = await runFollowUps(dedupe(collected), config, browser, onEvent);
+  const followUpResult = await runFollowUps(dedupe(collected), config, browser, onEvent, actionDelayMs, sleep);
   const unique = followUpResult.items;
   metrics.followUpVisits = followUpResult.metrics.visits;
   metrics.followUpToolCalls = followUpResult.metrics.toolCalls;
@@ -113,11 +118,12 @@ function collectToolItems(trace = [], tools = {}) {
   return items;
 }
 
-async function runFollowUps(items, config, browser, onEvent) {
+async function runFollowUps(items, config, browser, onEvent, actionDelayMs = 0, sleep = defaultSleep) {
   const followUps = Array.isArray(config.followUps) ? config.followUps : [];
   if (!followUps.length) return { items, metrics: { visits: 0, toolCalls: 0 } };
   const output = [];
   const metrics = { visits: 0, toolCalls: 0 };
+  let actionCompleted = false;
   for (const original of items) {
     let item = original;
     for (const followUp of followUps) {
@@ -125,12 +131,16 @@ async function runFollowUps(items, config, browser, onEvent) {
       const targets = readTargets(item, followUp.targetField).slice(0, followUp.maxTargets ?? 1);
       for (const target of targets) {
         if (!allowedFollowUpTarget(target, followUp.allowedHosts)) continue;
+        await pauseBetweenActions();
         const started = Date.now();
         await browser.open(target);
+        actionCompleted = true;
         metrics.visits += 1;
         const values = [];
         for (const tool of followUp.tools ?? []) {
+          await pauseBetweenActions();
           values.push(await browser.action('RUN_TOOL', tool));
+          actionCompleted = true;
           metrics.toolCalls += 1;
         }
         const value = values.length === 1 ? values[0] : values;
@@ -141,6 +151,11 @@ async function runFollowUps(items, config, browser, onEvent) {
     output.push(item);
   }
   return { items: output, metrics };
+
+  async function pauseBetweenActions() {
+    if (actionCompleted && actionDelayMs > 0) await sleep(actionDelayMs);
+    actionCompleted = false;
+  }
 }
 
 function matchesFollowUp(item, when = {}) {

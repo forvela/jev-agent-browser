@@ -27,6 +27,14 @@ test('applies decision defaults from a CLI config without storing the key', () =
   assert.equal(options.maxSteps, 9);
 });
 
+test('applies action pacing from config with CLI precedence and bounded validation', () => {
+  assert.equal(applyCliConfig(parseArgs(['--goal', 'inspect']), { pacing: { actionDelayMs: 25 } }).actionDelayMs, 25);
+  assert.equal(applyCliConfig(parseArgs(['--goal', 'inspect', '--action-delay', '0']), { pacing: { actionDelayMs: 25 } }).actionDelayMs, 0);
+  assert.doesNotThrow(() => validateOptions({ goal: 'inspect', url: 'https://example.test', actionDelayMs: 60_000 }));
+  assert.throws(() => validateOptions({ goal: 'inspect', url: 'https://example.test', actionDelayMs: -1 }), /actionDelayMs/);
+  assert.throws(() => validateOptions({ goal: 'inspect', url: 'https://example.test', actionDelayMs: 60_001 }), /actionDelayMs/);
+});
+
 test('exposes a small programmatic API entrypoint', () => {
   assert.equal(publicApi.AgentBrowser, undefined);
   assert.equal(typeof publicApi.runLoop, 'function');
@@ -278,6 +286,26 @@ test('the native SDK can target a compatible custom endpoint path', async () => 
   assert.equal(result.operation, 'DONE');
   assert.equal(received.url, 'https://openrouter.ai/api/alpha/decisions');
   assert.match(received.options.headers.Authorization, /^Bearer secret$/);
+});
+
+test('paces only between successful browser actions through an injected sleep seam', async () => {
+  const calls = [];
+  let decisions = 0;
+  const result = await runLoop({
+    goal: 'take two actions',
+    actionDelayMs: 25,
+    sleep: async (ms) => calls.push(['sleep', ms]),
+    browser: {
+      snapshot: async () => ({ url: 'x', snapshot: 's', refs: { '@button': { role: 'button', name: 'Go' } } }),
+      action: async (operation) => calls.push(['action', operation]),
+    },
+    decide: async () => decisions++ === 0
+      ? { operation: 'CLICK', target: '@button', goal_reached: 0, stuck: 0 }
+      : { operation: 'SCROLL_DOWN', goal_reached: 0, stuck: 0 },
+    maxSteps: 2,
+  });
+  assert.equal(result.steps, 2);
+  assert.deepEqual(calls, [['action', 'CLICK'], ['sleep', 25], ['action', 'SCROLL_DOWN']]);
 });
 
 test('loop emits ordered stream events', async () => {
@@ -536,6 +564,7 @@ test('follow-up targets require an explicit HTTP(S) host allowlist', () => {
 test('research follow-ups collect configured profile evidence before classification', async () => {
   let classificationRequest;
   const opened = [];
+  const sleeps = [];
   const output = await runResearch({
     config: {
       profile: { evidenceFields: ['profile_evidence'], dimensions: { source: { instructions: 'Classify source.', choices: { job_seeker: 'Job seeker', employer: 'Employer' } } }, keep: { dimension: 'source', choices: ['employer'] } },
@@ -544,6 +573,8 @@ test('research follow-ups collect configured profile evidence before classificat
       followUps: [{ name: 'profile', targetField: 'profile_urls', outputField: 'profile_evidence', when: { missingAny: ['profile_evidence'] }, tools: ['profile'], allowedHosts: ['example.test'] }],
       maxSteps: 1,
     },
+    actionDelayMs: 25,
+    sleep: async (ms) => sleeps.push(ms),
     browser: {
       open: async (url) => opened.push(url),
       snapshot: async () => ({ url: 'https://example.test/search', snapshot: 's', refs: {} }),
@@ -558,6 +589,7 @@ test('research follow-ups collect configured profile evidence before classificat
   assert.equal(output.collected[0].profile_evidence.location, 'India');
   assert.equal(output.metrics.followUpVisits, 1);
   assert.equal(output.metrics.followUpToolCalls, 1);
+  assert.deepEqual(sleeps, [25]);
   assert.equal(classificationRequest.state.candidates[0].evidence.profile_evidence.location, 'India');
   assert.equal(JSON.stringify(classificationRequest).includes('email@example.com'), false);
 });

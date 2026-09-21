@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentBrowser } from './browser.js';
 import { requestDecision } from './decision.js';
-import { runLoop } from './loop.js';
+import { runLoop, validateActionDelayMs } from './loop.js';
 import { applyProfileOverrides, buildBatchClassificationRequest, classifyBatch } from './classifier.js';
 import { enrichContactEvidence, keepClassifiedItems } from './research.js';
 import { loadResearchConfig, runResearch } from './research-runner.js';
@@ -33,6 +33,7 @@ export function parseArgs(argv) {
     else if (key === 'historylimit') options.historyLimit = Number(argv[++i]);
     else if (key === 'repeatlimit') options.repeatLimit = Number(argv[++i]);
     else if (key === 'maxrecoveryattempts') options.maxRecoveryAttempts = Number(argv[++i]);
+    else if (key === 'actiondelay') options.actionDelayMs = Number(argv[++i]);
     else if (key === 'inputvaluesjson') {
       try { options.inputValues = JSON.parse(argv[++i]); } catch (error) { throw new Error(`--input-values-json must be valid JSON: ${error.message}`); }
     }
@@ -62,6 +63,7 @@ export function applyCliConfig(options, config = {}) {
     endpoint: options.endpoint ?? decision.endpoint ?? config.endpoint,
     apikeyenv: options.apikeyenv ?? decision.apiKeyEnv ?? config.apiKeyEnv,
     decisiontransport: options.decisiontransport ?? decision.transport ?? config.decisionTransport,
+    actionDelayMs: options.actionDelayMs ?? config.pacing?.actionDelayMs ?? 0,
     maxSteps: options.maxSteps ?? config.maxSteps ?? 32,
   };
 }
@@ -71,6 +73,7 @@ export function isSuccessfulExit(status) {
 }
 
 export function validateOptions(options) {
+  validateActionDelayMs(options.actionDelayMs ?? 0);
   if (options.mode === 'classify') {
     if (!options.profilejson) throw new Error('--profile-json is required in classify mode');
     return;
@@ -122,6 +125,7 @@ Options:
   --history-limit <n>         Recent actions sent to Jev (default: 6)
   --repeat-limit <n>          Equivalent actions before recovery (default: 2)
   --max-recovery-attempts <n> Local recovery attempts (default: 3)
+  --action-delay <ms>        Fixed delay between successful browser actions (default: 0)
   --jsonl                     Stream JSON events, one object per line
   --max-steps <n>             Maximum actions (default: 32)
   --session <name>            agent-browser session name
@@ -254,7 +258,7 @@ if (isMainModule()) {
       const headers = decisionConfig.headers ?? config.decisionHeaders;
       const transport = options.decisiontransport ?? decisionConfig.transport ?? config.decisionTransport ?? 'typesafe';
       const browser = new AgentBrowser({ command: options.browsercommand ?? config.browserCommand, session: options.session, cdp: options.cdp, autoConnect: options.autoConnect, pinTab: options.pinTab, browserArgs: options.browserArgs ?? config.browserArgs ?? [], timeoutMs: options.browserTimeoutMs ?? config.browserTimeoutMs ?? 120_000, tools: config.tools });
-      const output = await runResearch({ config, browser, apiKey, model: options.model, endpoint, headers, transport, onEvent: options.jsonl ? writeJsonl : undefined });
+      const output = await runResearch({ config, browser, actionDelayMs: options.actionDelayMs, apiKey, model: options.model, endpoint, headers, transport, onEvent: options.jsonl ? writeJsonl : undefined });
       const rendered = options.summary ? compactResearchResult(output) : output;
       if (options.jsonl) writeJsonl({ type: 'result', status: 'completed', ...rendered });
       else console.log(JSON.stringify(rendered));
@@ -280,6 +284,7 @@ if (isMainModule()) {
       repeatLimit: options.repeatLimit,
       maxRecoveryAttempts: options.maxRecoveryAttempts,
       maxSteps: options.maxSteps,
+      actionDelayMs: options.actionDelayMs,
       onEvent: options.jsonl ? writeJsonl : undefined,
       decide: ({ request }) => requestDecision({ apiKey, request, endpoint: options.endpoint, transport: options.decisiontransport ?? 'typesafe' }),
     });

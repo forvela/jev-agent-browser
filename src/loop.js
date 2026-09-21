@@ -4,12 +4,23 @@ const TARGETED = new Set(['CLICK', 'TYPE', 'SELECT', 'RUN_TOOL']);
 const ACTIONS = new Set(['CLICK', 'TYPE', 'SELECT', 'PRESS', 'SCROLL_UP', 'SCROLL_DOWN', 'BACK', 'WAIT', 'RUN_TOOL']);
 const HANDOFF_SNAPSHOT_CHARS = 6_000;
 const HANDOFF_REFS = 60;
+export const MAX_ACTION_DELAY_MS = 60_000;
+
+export function validateActionDelayMs(value = 0) {
+  if (!Number.isInteger(value) || value < 0 || value > MAX_ACTION_DELAY_MS) {
+    throw new Error(`actionDelayMs must be an integer between 0 and ${MAX_ACTION_DELAY_MS}`);
+  }
+  return value;
+}
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function runLoop({
   goal, browser, decide = requestDecision, apiKey, model, text, selectValue, pressKey,
   plan, subtask, tools = {}, inputValues = {}, history: initialHistory = [], historyLimit = 6, repeatLimit = 2,
-  maxRecoveryAttempts = 3, maxSteps = 32, trace = true, onEvent,
+  maxRecoveryAttempts = 3, maxSteps = 32, actionDelayMs = 0, sleep = defaultSleep, trace = true, onEvent,
 }) {
+  validateActionDelayMs(actionDelayMs);
   if (!goal) throw new Error('goal is required');
   if (!Number.isInteger(maxSteps) || maxSteps < 1) throw new Error('maxSteps must be a positive integer');
   if (!Number.isInteger(historyLimit) || historyLimit < 1) throw new Error('historyLimit must be a positive integer');
@@ -22,6 +33,7 @@ export async function runLoop({
   let recoveryAttempts = 0;
   let recovery = null;
   let escalated = false;
+  let actionCompleted = false;
   let inputRequired = null;
   const started = Date.now();
   emitEvent(onEvent, { type: 'start', goal, plan: plan ?? null, subtask: subtask ?? goal, maxSteps });
@@ -147,8 +159,11 @@ export async function runLoop({
       emitEvent(onEvent, stepEvent(entry));
       break;
     }
+    if (actionCompleted && actionDelayMs > 0) await sleep(actionDelayMs);
+    actionCompleted = false;
     try {
       const actionResult = await browser.action(operation, target, { text: actionText, selectValue: actionSelectValue, pressKey });
+      actionCompleted = true;
       executed += 1;
       entry.action = { executed: true, result: actionResult ?? null, durationMs: Date.now() - iterationStarted };
       remember(history, { step, operation, target, signature, url: observation.url, executed: true, result: historyResult(actionResult) }, historyLimit);
