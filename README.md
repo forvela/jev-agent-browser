@@ -33,6 +33,28 @@ npx --package jev-agent-browser jev --help
 
 `agent-browser` is an external peer tool; this package owns the decision loop and research tools, not the browser engine. API keys stay in environment variables; they are never part of the browser page or decision state.
 
+### Persistent decision config
+
+Jev loads `~/.config/jev/config.json` automatically for the normal browser loop. Keep routing defaults there, never the secret itself:
+
+```json
+{
+  "decision": {
+    "endpoint": "https://openrouter.ai/api/alpha/decisions",
+    "apiKeyEnv": "OPENROUTER_API_KEY",
+    "model": "~typesafe/jev-latest"
+  },
+  "maxSteps": 12
+}
+```
+
+Use another file with `--config ./jev.config.json`, or set `JEV_CONFIG`. Inject the key separately, for example with `op run`:
+
+```bash
+op run --env-file=<(printf 'OPENROUTER_API_KEY=op://Private/ITEM/credential\\n') -- \
+  jev --url https://example.com --goal 'Open the pricing page'
+```
+
 ## What it does
 
 - **Browser tasks** — navigate, click, type explicit values, select, scroll, wait, and stop safely.

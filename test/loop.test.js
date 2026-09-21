@@ -1,13 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AgentBrowser, actionArgs, browserCommandArgs, normalizeSnapshot } from '../src/browser.js';
-import { parseArgs, runSkillsCommand, validateOptions } from '../src/cli.js';
+import { applyCliConfig, parseArgs, runSkillsCommand, validateOptions } from '../src/cli.js';
 import { buildCriteria, buildDecisionRequest, parseDecisionResponse, requestDecision } from '../src/decision.js';
 import { normalizeFieldKey, runLoop } from '../src/loop.js';
 import { applyProfileOverrides, buildBatchClassificationRequest, parseBatchClassificationResponse } from '../src/classifier.js';
 import { enrichContactEvidence, keepClassifiedItems } from '../src/research.js';
 import { allowedFollowUpTarget, loadResearchConfig, runResearch } from '../src/research-runner.js';
 import * as publicApi from '../src/index.js';
+
+test('applies decision defaults from a CLI config without storing the key', () => {
+  const options = applyCliConfig(parseArgs(['--goal', 'inspect']), {
+    decision: { endpoint: 'https://openrouter.ai/api/alpha/decisions', apiKeyEnv: 'OPENROUTER_API_KEY', model: '~typesafe/jev-latest' },
+    maxSteps: 9,
+  });
+  assert.equal(options.endpoint, 'https://openrouter.ai/api/alpha/decisions');
+  assert.equal(options.apikeyenv, 'OPENROUTER_API_KEY');
+  assert.equal(options.model, '~typesafe/jev-latest');
+  assert.equal(options.maxSteps, 9);
+});
 
 test('exposes a small programmatic API entrypoint', () => {
   assert.equal(publicApi.AgentBrowser, undefined);

@@ -1,6 +1,6 @@
 {
   "name": "jev-agent-browser",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Configurable Jev browser research and classification CLI",
   "author": "forvela",
   "license": "MIT",

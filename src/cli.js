@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentBrowser } from './browser.js';
 import { requestDecision } from './decision.js';
@@ -10,7 +12,7 @@ import { enrichContactEvidence, keepClassifiedItems } from './research.js';
 import { loadResearchConfig, runResearch } from './research-runner.js';
 
 export function parseArgs(argv) {
-  const options = { maxSteps: 32, attach: false, autoConnect: false, pinTab: false, jsonl: false };
+  const options = { attach: false, autoConnect: false, pinTab: false, jsonl: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') return { help: true };
@@ -37,6 +39,31 @@ export function parseArgs(argv) {
     else throw new Error(`unknown option: ${arg}`);
   }
   return options;
+}
+
+export async function loadCliConfig(configPath) {
+  const defaultPath = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'jev', 'config.json');
+  const path = configPath ?? process.env.JEV_CONFIG ?? defaultPath;
+  try {
+    return JSON.parse(await readFile(path, 'utf8'));
+  } catch (error) {
+    if (!configPath && error.code === 'ENOENT') return {};
+    throw new Error(`cannot read Jev config ${path}: ${error.message}`);
+  }
+}
+
+export function applyCliConfig(options, config = {}) {
+  const decision = config.decision ?? {};
+  return {
+    ...options,
+    goal: options.goal ?? config.goal,
+    url: options.url ?? config.url,
+    model: options.model ?? decision.model ?? config.model,
+    endpoint: options.endpoint ?? decision.endpoint ?? config.endpoint,
+    apikeyenv: options.apikeyenv ?? decision.apiKeyEnv ?? config.apiKeyEnv,
+    decisiontransport: options.decisiontransport ?? decision.transport ?? config.decisionTransport,
+    maxSteps: options.maxSteps ?? config.maxSteps ?? 32,
+  };
 }
 
 export function validateOptions(options) {
@@ -78,7 +105,7 @@ Options:
   --mode research             Collect configured queries, tools, and classify
   skills list|get|path        Read the installed Jev usage skill
   --profile-json <json>       Profile dimensions for classify mode
-  --config <path>             Research config with queries, tools, and profile
+  --config <path>             JSON config; defaults to ~/.config/jev/config.json when present
   --api-key-env <name>        Environment variable containing the Decisions key
   --decision-transport <name> typesafe (default) or fetch
   --max-items <n>             Items per Decisions request (default: 20)
@@ -100,7 +127,7 @@ Options:
 
 Environment:
   TYPESAFE_API_KEY            Required for the default TypeSafe SDK transport
-  OPENROUTER_API_KEY          Required with --decision-transport openrouter
+  OPENROUTER_API_KEY          Use this when the config or --api-key-env selects OpenRouter
 `;
 }
 
@@ -206,10 +233,10 @@ if (isMainModule()) {
       process.stdout.write(await runSkillsCommand(process.argv.slice(3)));
       process.exit(0);
     }
-    const options = parseArgs(process.argv.slice(2));
+    let options = parseArgs(process.argv.slice(2));
     jsonl = options.jsonl;
     if (options.help) { console.log(helpText()); process.exit(0); }
-    validateOptions(options);
+    if (options.mode) validateOptions(options);
     if (options.mode === 'classify') {
       const output = await runClassificationMode(options);
       console.log(JSON.stringify(output));
@@ -229,6 +256,8 @@ if (isMainModule()) {
       else console.log(JSON.stringify(rendered));
       process.exit(0);
     }
+    options = applyCliConfig(options, await loadCliConfig(options.config));
+    validateOptions(options);
     const browser = new AgentBrowser({ command: options.browsercommand, session: options.session, cdp: options.cdp, autoConnect: options.autoConnect, pinTab: options.pinTab, browserArgs: options.browserArgs ?? [] });
     const apiKey = process.env[options.apikeyenv ?? 'TYPESAFE_API_KEY'];
     if (options.url) await browser.open(options.url);
