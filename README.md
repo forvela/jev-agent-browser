@@ -23,6 +23,11 @@ jev \
   --url https://huggingface.co/models \
   --goal 'Open Tasks and select Text Classification' \
   --max-steps 6
+
+# A parent may provide semantic goal values without exposing DOM refs.
+jev --attach --auto-connect \
+  --goal 'Open Facebook' \
+  --inputs-json '[{"key":"destination","kind":"url","value":"https://facebook.com"}]'
 ```
 
 Or run the CLI without a global Jev install:
@@ -73,7 +78,7 @@ op run --env-file=<(printf 'OPENROUTER_API_KEY=op://Private/ITEM/credential\\n')
 
 ## What it does
 
-- **Browser tasks** — navigate, click, type explicit values, select, scroll, wait, and stop safely.
+- **Browser tasks** — navigate with a supplied URL, click, type supplied values, select, scroll, wait, and stop safely.
 - **Research** — collect bounded raw evidence from configured pages and browser tools.
 - **Classification** — send one typed, profile-driven batch to Jev.
 - **Agent orchestration** — stream JSONL events or return a structured handoff to the parent agent.
@@ -103,7 +108,7 @@ flowchart LR
   L -->|success or escalation| P
 ```
 
-This keeps Jev fast and local to execution while the parent remains responsible for reasoning and side effects.
+This keeps Jev fast and local to execution while the parent remains responsible for reasoning, permissions, and supplying known goal values. Jev owns live snapshot target resolution, navigation, execution, recovery, and resumable browser handoffs.
 
 ## Common use cases
 
@@ -153,6 +158,33 @@ export async function run(browser) {
 ```
 
 `runLoop` accepts injected browser and decision seams, so tests and other Node agents can provide their own adapters.
+
+### Goal inputs and resumable handoffs
+
+The parent agent should pass the raw goal unchanged and add only values it already knows. Jev resolves the live page target from the current snapshot; callers never need to provide transient `@refs`:
+
+```js
+import { resumeLoop, runLoop } from 'jev-agent-browser';
+
+const result = await runLoop({
+  browser,
+  goal: 'Open Google and search for pizza delivery',
+  inputs: [
+    { key: 'destination', kind: 'url', value: 'https://google.com' },
+    { key: 'query', kind: 'text', value: 'pizza delivery', targetHint: 'search field' },
+  ],
+});
+
+if (result.status === 'input-required') {
+  const resumed = await resumeLoop({
+    browser,
+    continuation: result.handoff.continuation,
+    inputs: [{ key: 'password', kind: 'secret', value: process.env.PASSWORD }],
+  });
+}
+```
+
+`inputs` values are finite data selected by Jev; Jev does not bundle an LLM, infer URLs from raw goals, or use regex prompt parsing. Missing values return a structured handoff for the parent or human to resolve. Secret inputs are redacted from decision state, traces, events, and handoffs.
 
 ## Compatible Decisions endpoints
 

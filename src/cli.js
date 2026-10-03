@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentBrowser } from './browser.js';
 import { requestDecision } from './decision.js';
-import { runLoop, validateActionDelayMs } from './loop.js';
+import { resumeLoop, runLoop, validateActionDelayMs } from './loop.js';
 import { applyProfileOverrides, buildBatchClassificationRequest, classifyBatch } from './classifier.js';
 import { enrichContactEvidence, keepClassifiedItems } from './research.js';
 import { loadResearchConfig, runResearch } from './research-runner.js';
@@ -23,7 +23,7 @@ export function parseArgs(argv) {
     else if (key === 'attach') options.attach = true;
     else if (key === 'pintab') options.pinTab = true;
     else if (key === 'jsonl') options.jsonl = true;
-    else if (['goal', 'url', 'text', 'selectvalue', 'presskey', 'plan', 'subtask', 'session', 'model', 'endpoint', 'cdp', 'mode', 'profilejson', 'config', 'browsercommand', 'apikeyenv', 'decisiontransport'].includes(key)) options[key] = argv[++i];
+    else if (['goal', 'url', 'text', 'selectvalue', 'presskey', 'plan', 'subtask', 'session', 'model', 'endpoint', 'cdp', 'mode', 'profilejson', 'config', 'browsercommand', 'apikeyenv', 'decisiontransport', 'resumejson'].includes(key)) options[key] = argv[++i];
     else if (key === 'browserarg') (options.browserArgs ??= []).push(argv[++i]);
     else if (key === 'maxitems') options.maxItems = Number(argv[++i]);
     else if (key === 'maxtextchars') options.maxTextChars = Number(argv[++i]);
@@ -34,8 +34,12 @@ export function parseArgs(argv) {
     else if (key === 'repeatlimit') options.repeatLimit = Number(argv[++i]);
     else if (key === 'maxrecoveryattempts') options.maxRecoveryAttempts = Number(argv[++i]);
     else if (key === 'actiondelay') options.actionDelayMs = Number(argv[++i]);
-    else if (key === 'inputvaluesjson') {
-      try { options.inputValues = JSON.parse(argv[++i]); } catch (error) { throw new Error(`--input-values-json must be valid JSON: ${error.message}`); }
+    else if (key === 'inputvaluesjson' || key === 'inputsjson') {
+      try {
+        const value = JSON.parse(argv[++i]);
+        if (key === 'inputvaluesjson') options.inputValues = value;
+        else options.inputs = value;
+      } catch (error) { throw new Error(`--${arg.slice(2)} must be valid JSON: ${error.message}`); }
     }
     else throw new Error(`unknown option: ${arg}`);
   }
@@ -74,6 +78,7 @@ export function applyCliConfig(options, config = {}) {
     ...options,
     goal: options.goal ?? config.goal,
     url: options.url ?? config.url,
+    inputs: options.inputs ?? config.inputs,
     model: options.model ?? decision.model ?? config.model,
     endpoint: options.endpoint ?? decision.endpoint ?? config.endpoint,
     apikeyenv: options.apikeyenv ?? decision.apiKeyEnv ?? config.apiKeyEnv,
@@ -99,8 +104,8 @@ export function validateOptions(options) {
     if (!options.attach && !options.autoConnect && !options.cdp) throw new Error('research mode requires --attach with --auto-connect or --cdp');
     return;
   }
-  if (!options.goal) throw new Error('--goal is required');
-  if (!options.url && !options.attach) throw new Error('--url or --attach is required');
+  if (!options.goal && !options.resumejson) throw new Error('--goal is required');
+  if (!options.url && !options.attach && !options.resumejson) throw new Error('--url or --attach is required');
   if (options.attach && !options.autoConnect && !options.cdp) {
     throw new Error('--attach requires --auto-connect or --cdp <port|url>');
   }
@@ -123,7 +128,9 @@ Options:
   --text <value>              Enable TYPE with this explicit value
   --select-value <value>      Enable SELECT with this explicit value
   --press-key <key>           Enable PRESS with this explicit key (e.g. Enter)
-  --input-values-json <json>  Parent values for non-secret test flows
+  --input-values-json <json>  Legacy parent values for non-secret flows
+  --inputs-json <json>        Structured goal inputs from the parent agent
+  --resume-json <json>        JSON continuation returned by a prior run
   --mode classify             Classify JSON items from stdin using a profile
   --mode research             Collect configured queries, tools, and classify
   skills list|get|path        Read the installed Jev usage skill
@@ -201,7 +208,10 @@ function compactResearchResult(output) {
 }
 
 function itemSourceUrl(item) {
-  const entry = Object.entries(item ?? {}).find(([key, value]) => /(url|uri)$/i.test(key) && typeof value === 'string' && value);
+  const entry = Object.entries(item ?? {}).find(([key, value]) => {
+    const name = String(key).toLowerCase();
+    return (name.endsWith('url') || name.endsWith('uri')) && typeof value === 'string' && value;
+  });
   return entry?.[1] ?? item.id;
 }
 
@@ -285,8 +295,10 @@ if (isMainModule()) {
     validateOptions(options);
     const browser = new AgentBrowser({ command: options.browsercommand, session: options.session, cdp: options.cdp, autoConnect: options.autoConnect, pinTab: options.pinTab, browserArgs: options.browserArgs ?? [], tools: options.tools });
     const apiKey = process.env[options.apikeyenv ?? 'TYPESAFE_API_KEY'];
-    if (options.url) await browser.open(options.url);
-    const result = await runLoop({
+    if (options.url && !options.resumejson) await browser.open(options.url);
+    const result = options.resumejson
+      ? await resumeLoop({ continuation: JSON.parse(options.resumejson), inputs: options.inputs, browser, apiKey, model: options.model, endpoint: options.endpoint, decide: ({ request, signal }) => requestDecision({ apiKey, request, endpoint: options.endpoint, transport: options.decisiontransport ?? 'typesafe', signal }) })
+      : await runLoop({
       goal: options.goal,
       browser,
       apiKey,
@@ -295,6 +307,8 @@ if (isMainModule()) {
       selectValue: options.selectvalue,
       pressKey: options.presskey,
       inputValues: options.inputValues,
+      inputs: options.inputs,
+      sessionId: options.session,
       plan: options.plan,
       subtask: options.subtask,
       historyLimit: options.historyLimit,
@@ -304,7 +318,7 @@ if (isMainModule()) {
       actionDelayMs: options.actionDelayMs,
       tools: options.tools,
       onEvent: options.jsonl ? writeJsonl : undefined,
-      decide: ({ request }) => requestDecision({ apiKey, request, endpoint: options.endpoint, transport: options.decisiontransport ?? 'typesafe' }),
+      decide: ({ request, signal }) => requestDecision({ apiKey, request, endpoint: options.endpoint, transport: options.decisiontransport ?? 'typesafe', signal }),
     });
     if (jsonl) {
       writeJsonl({

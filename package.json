@@ -1,6 +1,6 @@
 {
   "name": "jev-agent-browser",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Configurable Jev browser research and classification CLI",
   "author": "forvela",
   "license": "MIT",
@@ -25,7 +25,8 @@
     "skills",
     "fixture",
     "agent-browser.json",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "jev",
@@ -48,6 +49,10 @@
   "scripts": {
     "start": "node src/cli.js",
     "test": "node --test",
-    "smoke": "node src/smoke.js"
+    "test:unit": "node --test test/loop.test.js",
+    "test:contract": "node --test test/contract.test.js",
+    "test:jsonl": "node --test test/jsonl.test.js",
+    "smoke": "node src/smoke.js",
+    "smoke:all": "npm run test && npm run smoke"
   }
 }

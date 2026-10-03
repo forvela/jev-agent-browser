@@ -1,4 +1,5 @@
 import { TypeSafeClient } from '@typesafe-ai/sdk';
+import { inputChoices, redactInputMetadata } from './contracts.js';
 
 const DEFAULT_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 const TYPESAFE_PATH = '/v1/systemone';
@@ -6,16 +7,16 @@ const DEFAULT_MODEL = 'jev-latest';
 const DEFAULT_MAX_SNAPSHOT_CHARS = 18_000;
 const DEFAULT_MAX_REFS = 180;
 
-export const OPERATIONS = ['CLICK', 'TYPE', 'SELECT', 'PRESS', 'SCROLL_UP', 'SCROLL_DOWN', 'BACK', 'WAIT', 'RUN_TOOL', 'DONE'];
+export const OPERATIONS = ['CLICK', 'TYPE', 'SELECT', 'PRESS', 'SCROLL_UP', 'SCROLL_DOWN', 'BACK', 'WAIT', 'RUN_TOOL', 'NAVIGATE', 'DONE'];
 
-export function buildCriteria(refs, { text, selectValue, pressKey, allowInputRequest = false, avoidSignatures = [], tools = {}, goal = '', history = [] } = {}) {
+export function buildCriteria(refs, { text, selectValue, pressKey, allowInputRequest = false, avoidSignatures = [], tools = {}, goal = '', history = [], inputs = { entries: [] } } = {}) {
   const avoid = new Set(avoidSignatures);
   const operations = OPERATIONS.filter((operation) =>
     !avoid.has(`${operation}|`) &&
     (operation !== 'RUN_TOOL' || Object.keys(tools).length > 0) &&
-    (operation !== 'TYPE' || allowInputRequest || text !== undefined && text !== null) &&
-    (operation !== 'SELECT' || allowInputRequest || selectValue !== undefined && selectValue !== null) &&
-    (operation !== 'PRESS' || pressKey !== undefined && pressKey !== null));
+    (operation !== 'TYPE' || allowInputRequest || text !== undefined && text !== null || inputs.entries.some((entry) => ['text', 'secret'].includes(entry.kind))) &&
+    (operation !== 'SELECT' || allowInputRequest || selectValue !== undefined && selectValue !== null || inputs.entries.some((entry) => ['select', 'text'].includes(entry.kind))) &&
+    (operation !== 'PRESS' || pressKey !== undefined && pressKey !== null || inputs.entries.some((entry) => entry.kind === 'key')));
   const criteria = {
     operation: {
       type: 'choice',
@@ -25,6 +26,12 @@ export function buildCriteria(refs, { text, selectValue, pressKey, allowInputReq
     click_target: targetCriteria(refs, ['button', 'link'], 'CLICK', avoid, { goal, history }),
     type_target: targetCriteria(refs, ['textbox', 'combobox'], 'TYPE', avoid, { goal, history }),
     select_target: targetCriteria(refs, ['combobox', 'listbox', 'select'], 'SELECT', avoid, { goal, history }),
+    ...(inputs.entries.length ? {
+      navigate_input: inputQuestion('Choose the supplied destination input.', inputChoices(inputs, ['url'])),
+      type_input: inputQuestion('Choose the supplied text input.', inputChoices(inputs, ['text', 'secret'])),
+      select_input: inputQuestion('Choose the supplied select input.', inputChoices(inputs, ['select', 'text'])),
+      press_input: inputQuestion('Choose the supplied key input.', inputChoices(inputs, ['key'])),
+    } : {}),
     goal_reached: {
       type: 'noul',
       instructions: 'Estimate whether the requested goal has been reached.',
@@ -52,19 +59,25 @@ function selectContextRefs(refs, maxRefs) {
   return [...new Map(selected.map(([ref, details]) => [ref, [ref, details]])).values()].slice(0, maxRefs);
 }
 
+function inputQuestion(instructions, criteria) {
+  return { type: 'choice', instructions, criteria };
+}
+
 function operationInstructions(operation, { text, selectValue, pressKey }) {
   if (operation === 'CLICK') return 'Choose a current control, filter, menu, pagination link, or clearly requested content target. Prefer controls over content cards and do not repeat an already executed click.';
-  if (operation === 'TYPE') return `Fill a matching field with the explicit value "${text}"; do not repeat it if it is already filled.`;
-  if (operation === 'SELECT') return `Select the explicit value "${selectValue}".`;
-  if (operation === 'PRESS') return `Press ${pressKey} on the currently focused control, usually to submit it.`;
+  if (operation === 'TYPE') return text === undefined ? 'Fill a matching field using one supplied text input.' : `Fill a matching field with the explicit value "${text}"; do not repeat it if it is already filled.`;
+  if (operation === 'SELECT') return selectValue === undefined ? 'Select a value from the supplied inputs.' : `Select the explicit value "${selectValue}".`;
+  if (operation === 'PRESS') return pressKey === undefined ? 'Press one supplied key on the currently focused control.' : `Press ${pressKey} on the currently focused control, usually to submit it.`;
   if (operation === 'RUN_TOOL') return 'Execute one allowlisted page helper and inspect its bounded result.';
+  if (operation === 'NAVIGATE') return 'Open the supplied destination URL.';
   return `Execute ${operation}.`;
 }
 
 function targetCriteria(refs, roles, operation, avoid, { goal = '', history = [] } = {}) {
   const allowedRoles = new Set(roles);
-  const allowContentTargets = !/\b(filter|sort|task|library|language|license|category)\b/i.test(goal)
-    || history.filter((entry) => ['CLICK', 'SELECT'].includes(entry.operation)).length >= 4;
+  const goalText = String(goal).toLowerCase();
+  const goalNeedsControls = ['filter', 'sort', 'task', 'library', 'language', 'license', 'category'].some((word) => goalText.includes(word));
+  const allowContentTargets = !goalNeedsControls || history.filter((entry) => ['CLICK', 'SELECT'].includes(entry.operation)).length >= 4;
   return {
     type: 'choice',
     instructions: 'Choose the current browser ref targeted by the operation. Prefer exact filter/menu controls over similarly named result cards.',
@@ -88,12 +101,13 @@ function isContentCard(details) {
   return role === 'link' && (name.includes(' • ') || name.length > 100);
 }
 
-export function buildDecisionRequest({ goal, observation, refs, text, selectValue, pressKey, allowInputRequest = false, tools = {}, plan, subtask, history, recovery, model = DEFAULT_MODEL, maxSnapshotChars = DEFAULT_MAX_SNAPSHOT_CHARS, maxRefs = DEFAULT_MAX_REFS }) {
+export function buildDecisionRequest({ goal, observation, refs, text, selectValue, pressKey, inputs = { entries: [] }, allowInputRequest = false, tools = {}, plan, subtask, history, recovery, model = DEFAULT_MODEL, maxSnapshotChars = DEFAULT_MAX_SNAPSHOT_CHARS, maxRefs = DEFAULT_MAX_REFS }) {
   const contextRefs = Object.fromEntries(selectContextRefs(refs, maxRefs));
   const snapshot = observation.snapshot.length > maxSnapshotChars
     ? `${observation.snapshot.slice(0, maxSnapshotChars)}\n[ snapshot truncated ]`
     : observation.snapshot;
   const state = { goal, url: observation.url, snapshot, refs: contextRefs };
+  if (inputs.entries.length) state.inputs = redactInputMetadata(inputs);
   if (plan) state.plan = plan;
   if (subtask) state.subtask = subtask;
   if (history?.length) state.history = history;
@@ -101,27 +115,30 @@ export function buildDecisionRequest({ goal, observation, refs, text, selectValu
   return {
     model,
     state,
-    questions: buildCriteria(contextRefs, { text, selectValue, pressKey, allowInputRequest, avoidSignatures: recovery?.avoid, tools, goal, history }),
+    questions: buildCriteria(contextRefs, { text, selectValue, pressKey, allowInputRequest, avoidSignatures: recovery?.avoid, tools, goal, history, inputs }),
   };
 }
 
-export async function requestDecision({ apiKey, request, endpoint = DEFAULT_ENDPOINT, headers = {}, timeoutMs = 30_000, transport = 'typesafe', fetchImpl, sdkClient, parseResponse = parseDecisionResponse }) {
+export async function requestDecision({ apiKey, request, endpoint = DEFAULT_ENDPOINT, headers = {}, timeoutMs = 30_000, transport = 'typesafe', fetchImpl, sdkClient, parseResponse = parseDecisionResponse, signal }) {
   if (!apiKey) throw new Error('Decision API key is required');
   if (transport === 'fetch') {
-    return requestDecisionWithFetch({ apiKey, request, endpoint, headers, timeoutMs, fetchImpl: fetchImpl ?? fetch, parseResponse });
+    return requestDecisionWithFetch({ apiKey, request, endpoint, headers, timeoutMs, fetchImpl: fetchImpl ?? fetch, parseResponse, signal });
   }
   if (transport !== 'typesafe' && transport !== 'sdk') {
     throw new Error(`unsupported decision transport: ${transport}`);
   }
   const { baseURL, fetch: sdkFetch } = sdkConnection(endpoint, fetchImpl);
   const client = sdkClient ?? new TypeSafeClient({ apiKey, baseURL, defaultModel: request.model, timeout: timeoutMs, defaultHeaders: headers, ...(sdkFetch ? { fetch: sdkFetch } : {}) });
-  const response = await client.systemOne(request, { headers, timeout: timeoutMs });
+  const response = await client.systemOne(request, { headers, timeout: timeoutMs, ...(signal ? { signal } : {}) });
   return parseResponse(response);
 }
 
-async function requestDecisionWithFetch({ apiKey, request, endpoint, headers, timeoutMs, fetchImpl, parseResponse }) {
+async function requestDecisionWithFetch({ apiKey, request, endpoint, headers, timeoutMs, fetchImpl, parseResponse, signal }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener('abort', abort, { once: true });
   try {
     const response = await fetchImpl(endpoint, {
       method: 'POST',
@@ -137,21 +154,26 @@ async function requestDecisionWithFetch({ apiKey, request, endpoint, headers, ti
     if (!response.ok) throw new Error(`Decision API ${response.status}: ${body.error?.message ?? bodyText.slice(0, 300)}`);
     return parseResponse(body);
   } catch (error) {
-    if (error.name === 'AbortError') throw new Error(`Decision API timed out after ${timeoutMs}ms`, { cause: error });
+    if (error.name === 'AbortError') {
+      if (signal?.aborted) { const aborted = new Error('Decision API request cancelled', { cause: error }); aborted.code = 'ABORT_ERR'; throw aborted; }
+      throw new Error(`Decision API timed out after ${timeoutMs}ms`, { cause: error });
+    }
     throw error;
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
   }
 }
 
 function sdkConnection(endpoint, fetchImpl) {
   const url = new URL(endpoint);
-  const path = url.pathname.replace(/\/$/, '');
+  const path = url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname;
   const standardPath = path === '' || path === TYPESAFE_PATH;
   if (standardPath) {
     url.pathname = '';
     url.search = '';
-    return { baseURL: url.toString().replace(/\/$/, ''), fetch: fetchImpl };
+    const baseURL = url.toString();
+    return { baseURL: baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL, fetch: fetchImpl };
   }
   const fetcher = fetchImpl ?? fetch;
   return {
@@ -177,10 +199,14 @@ export function parseDecisionResponse(payload) {
   const targetValue = targetHead ? value?.[targetHead] : undefined;
   const target = pickChoice(targetValue) ?? pickChoice(value?.target);
   const targetProbability = pickProbability(targetValue) ?? pickProbability(value?.target);
+  const inputHead = operationInputHead(operation);
+  const inputValue = inputHead ? value?.[inputHead] : undefined;
+  const inputKey = pickChoice(inputValue) ?? pickChoice(value?.inputKey);
+  const inputProbability = pickProbability(inputValue) ?? pickProbability(value?.inputKey);
   const goalReached = pickNoul(value?.goal_reached ?? value?.goalReached);
   const stuck = pickNoul(value?.stuck);
   if (!operation || !OPERATIONS.includes(operation)) throw new Error('Decision response has no supported operation');
-  return {
+  const result = {
     operation,
     target,
     goal_reached: goalReached,
@@ -193,15 +219,26 @@ export function parseDecisionResponse(payload) {
     },
     raw: payload,
   };
+  if (inputKey !== undefined) result.inputKey = inputKey;
+  if (inputProbability !== undefined) result.probabilities.input = inputProbability;
+  return result;
 }
 
 function operationTargetHead(operation) {
   return { CLICK: 'click_target', TYPE: 'type_target', SELECT: 'select_target', RUN_TOOL: 'tool_target' }[operation];
 }
 
+function operationInputHead(operation) {
+  return { NAVIGATE: 'navigate_input', TYPE: 'type_input', SELECT: 'select_input', PRESS: 'press_input' }[operation];
+}
+
 export function targetForOperation(decision) {
   const head = operationTargetHead(decision?.operation);
   return (head && pickChoice(decision?.[head])) ?? pickChoice(decision?.target);
+}
+
+export function inputKeyForOperation(decision) {
+  return decision?.inputKey ?? pickChoice(decision?.[operationInputHead(decision?.operation)]);
 }
 
 function pickChoice(value) {

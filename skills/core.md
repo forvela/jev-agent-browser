@@ -29,8 +29,11 @@ jev --attach --auto-connect --pin-tab \
 ```
 
 Use `--cdp 9222` instead of `--auto-connect` when the Chrome endpoint is known.
-Supported decisions include clicks, typing with parent-provided values,
-selects, key presses, scrolling, back, wait, configured tools, and done.
+Supported decisions include navigation with a parent-provided URL, clicks,
+typing/selecting with parent-provided values, key presses, scrolling, back,
+wait, configured tools, and done. The parent passes the raw goal unchanged and
+may provide semantic `--inputs-json` values; Jev resolves current DOM refs from
+the live snapshot.
 
 ### Generic classification
 
@@ -156,6 +159,8 @@ the seam.
   `OPENROUTER_API_KEY` when pointing the same SDK at OpenRouter.
 - `status: limit` means the configured bounded budget ended; it is resumable,
   not automatically an error.
+- `status: input-required` means the parent or human must provide a missing
+  semantic value; resume with the returned continuation and same session.
 - `status: blocked` or `status: error` requires inspecting the handoff.
 - If `agent-browser` cannot be found, install the package or pass
   `--browser-command`.

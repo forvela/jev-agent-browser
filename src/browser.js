@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { validateUrl } from './contracts.js';
 
 const require = createRequire(import.meta.url);
 const WRAPPER_OWNED_ARGS = new Set(['--session', '--session-name', '--cdp', '--auto-connect', '--pin-tab', '--no-pin-tab']);
@@ -18,24 +19,29 @@ export class AgentBrowser {
     this.tools = tools;
   }
 
-  async run(args, { stdin } = {}) {
+  async run(args, { stdin, signal } = {}) {
     const commandArgs = browserCommandArgs({ session: this.session, connectionArgs: this.connectionArgs, browserArgs: this.browserArgs, args });
     try {
-      const result = await runProcess(this.command, [...this.commandPrefix, ...commandArgs], stdin, this.timeoutMs);
+      const result = await runProcess(this.command, [...this.commandPrefix, ...commandArgs], stdin, this.timeoutMs, signal);
       return { stdout: result.stdout, stderr: result.stderr };
     } catch (error) {
       const detail = error.code === 'ENOENT'
         ? 'agent-browser executable not found; install agent-browser separately with npm or pass --browser-command <path>'
         : [error.message, error.stdout, error.stderr].filter(Boolean).join('\n');
-      throw new Error(`agent-browser ${args.join(' ')} failed: ${detail}`, { cause: error });
+      const wrapped = new Error(`agent-browser command failed: ${detail}`, { cause: error });
+      if (error.code) wrapped.code = error.code;
+      throw wrapped;
     }
   }
 
-  async open(url) { return this.run(['open', url]); }
-  async close() { return this.run(['close']); }
+  async open(url, { signal } = {}) { return this.run(['open', validateUrl(url)], { signal }); }
+  async close({ signal } = {}) { return this.run(['close'], { signal }); }
+  async attach({ signal } = {}) { return this.snapshot({ signal }); }
+  async rebind({ signal } = {}) { return this.snapshot({ signal }); }
+  async cleanup({ signal } = {}) { return this.close({ signal }); }
 
-  async eval(source) {
-    const { stdout } = await this.run(['eval', '--json', '--stdin'], { stdin: source });
+  async eval(source, { signal } = {}) {
+    const { stdout } = await this.run(['eval', '--json', '--stdin'], { stdin: source, signal });
     try {
       const payload = JSON.parse(stdout);
       return payload?.data?.result ?? payload?.data?.value ?? payload?.result ?? payload?.value ?? payload;
@@ -44,8 +50,8 @@ export class AgentBrowser {
     }
   }
 
-  async snapshot() {
-    const { stdout } = await this.run(['snapshot', '--json']);
+  async snapshot({ signal } = {}) {
+    const { stdout } = await this.run(['snapshot', '--json'], { signal });
     let payload;
     try { payload = JSON.parse(stdout); } catch (error) {
       throw new Error(`agent-browser returned invalid snapshot JSON: ${stdout.slice(0, 500)}`, { cause: error });
@@ -53,20 +59,21 @@ export class AgentBrowser {
     return normalizeSnapshot(payload);
   }
 
-  async action(operation, target, { text, selectValue, pressKey } = {}) {
-    if (operation === 'RUN_TOOL') return this.runTool(target);
-    const args = actionArgs(operation, target, { text, selectValue, pressKey });
-    return this.run(args);
+  async action(operation, target, { text, selectValue, pressKey, url, signal } = {}) {
+    if (operation === 'RUN_TOOL') return this.runTool(target, { signal });
+    if (operation === 'NAVIGATE') return this.open(url ?? target, { signal });
+    const args = actionArgs(operation, target, { text, selectValue, pressKey, url });
+    return this.run(args, { signal });
   }
 
-  async runTool(name) {
+  async runTool(name, { signal } = {}) {
     const tool = this.tools[name];
     if (!tool || (!tool.source && !tool.sourcePath)) throw new Error(`unknown browser tool: ${name}`);
     const source = tool.sourcePath ? await readFile(tool.sourcePath, 'utf8') : tool.source;
     const config = tool.config && typeof tool.config === 'object'
       ? `globalThis.__JEV_TOOL_CONFIG__ = ${JSON.stringify(tool.config)};\n`
       : '';
-    return this.eval(`${config}${source}`);
+    return this.eval(`${config}${source}`, { signal });
   }
 }
 
@@ -79,22 +86,35 @@ function resolveBrowserCommand(command) {
   }
 }
 
-function runProcess(command, args, stdin, timeoutMs) {
+function runProcess(command, args, stdin, timeoutMs, signal) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timer;
+    let abort;
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       if (error) reject(error);
       else resolve(result);
     };
-    const timer = setTimeout(() => {
+    abort = () => {
       child.kill('SIGTERM');
-      finish(new Error(`timed out after ${timeoutMs}ms`));
+      const error = new Error('browser command cancelled');
+      error.code = 'ABORT_ERR';
+      finish(error);
+    };
+    if (signal?.aborted) { abort(); return; }
+    signal?.addEventListener('abort', abort, { once: true });
+    timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      const error = new Error(`timed out after ${timeoutMs}ms`);
+      error.code = 'TIMEOUT';
+      finish(error);
     }, timeoutMs);
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
@@ -142,7 +162,7 @@ function refNumber(ref) {
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
 }
 
-export function actionArgs(operation, target, { text, selectValue, pressKey } = {}) {
+export function actionArgs(operation, target, { text, selectValue, pressKey, url } = {}) {
   switch (operation) {
     case 'CLICK': return ['click', target];
     case 'TYPE': return ['fill', target, text];
@@ -152,6 +172,7 @@ export function actionArgs(operation, target, { text, selectValue, pressKey } = 
     case 'SCROLL_DOWN': return ['scroll', 'down'];
     case 'BACK': return ['back'];
     case 'WAIT': return ['wait', '500'];
+    case 'NAVIGATE': return ['open', validateUrl(url ?? target)];
     default: throw new Error(`unsupported operation: ${operation}`);
   }
 }

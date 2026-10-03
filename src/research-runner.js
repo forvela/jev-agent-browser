@@ -181,7 +181,8 @@ export function allowedFollowUpTarget(target, hosts = []) {
     if (!['http:', 'https:'].includes(url.protocol)) return false;
     const hostname = url.hostname.toLowerCase();
     return hosts.some((host) => {
-      const allowed = String(host).toLowerCase().replace(/^\.+/, '');
+      let allowed = String(host).toLowerCase();
+      while (allowed.startsWith('.')) allowed = allowed.slice(1);
       return allowed && (hostname === allowed || hostname.endsWith(`.${allowed}`));
     });
   } catch {

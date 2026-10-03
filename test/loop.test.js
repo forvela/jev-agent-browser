@@ -66,10 +66,11 @@ test('exposes the installed agent-facing skill', async () => {
 });
 
 test('parses and validates attach mode', () => {
-  const options = parseArgs(['--attach', '--auto-connect', '--jsonl', '--browser-arg', '--profile', '--browser-arg', 'Default', '--api-key-env', 'JEV_KEY', '--input-values-json', '{"email":"user@example.com"}', '--goal', 'inspect current tab']);
+  const options = parseArgs(['--attach', '--auto-connect', '--jsonl', '--browser-arg', '--profile', '--browser-arg', 'Default', '--api-key-env', 'JEV_KEY', '--input-values-json', '{"email":"user@example.com"}', '--inputs-json', '[{"key":"destination","kind":"url","value":"https://example.com"}]', '--goal', 'inspect current tab']);
   assert.equal(options.attach, true);
   assert.equal(options.jsonl, true);
   assert.deepEqual(options.inputValues, { email: 'user@example.com' });
+  assert.deepEqual(options.inputs, [{ key: 'destination', kind: 'url', value: 'https://example.com' }]);
   assert.equal(options.autoConnect, true);
   assert.deepEqual(options.browserArgs, ['--profile', 'Default']);
   assert.equal(options.apikeyenv, 'JEV_KEY');
@@ -125,7 +126,7 @@ test('criteria gate explicit inputs and filters operation targets by role', () =
     '@select': { name: 'Color', role: 'combobox' },
     '@option': { name: 'Green', role: 'option' },
   });
-  assert.deepEqual(Object.keys(without.operation.criteria), ['CLICK', 'SCROLL_UP', 'SCROLL_DOWN', 'BACK', 'WAIT', 'DONE']);
+  assert.deepEqual(Object.keys(without.operation.criteria), ['CLICK', 'SCROLL_UP', 'SCROLL_DOWN', 'BACK', 'WAIT', 'NAVIGATE', 'DONE']);
   assert.deepEqual(Object.keys(without.click_target.criteria), ['none_of_the_above', '@button']);
   assert.deepEqual(Object.keys(without.type_target.criteria), ['none_of_the_above', '@textbox', '@select']);
   assert.deepEqual(Object.keys(without.select_target.criteria), ['none_of_the_above', '@select']);
@@ -161,7 +162,7 @@ test('builds the exact Decisions API request shape', () => {
         instructions: 'Choose the next browser operation.',
         criteria: {
           CLICK: 'Choose a current control, filter, menu, pagination link, or clearly requested content target. Prefer controls over content cards and do not repeat an already executed click.', SCROLL_UP: 'Execute SCROLL_UP.', SCROLL_DOWN: 'Execute SCROLL_DOWN.',
-          BACK: 'Execute BACK.', WAIT: 'Execute WAIT.', DONE: 'Execute DONE.',
+          BACK: 'Execute BACK.', WAIT: 'Execute WAIT.', NAVIGATE: 'Open the supplied destination URL.', DONE: 'Execute DONE.',
         },
       },
       click_target: {
