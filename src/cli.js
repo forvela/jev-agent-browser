@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { AgentBrowser } from './browser.js';
 import { requestDecision } from './decision.js';
 import { resumeLoop, runLoop, validateActionDelayMs } from './loop.js';
@@ -11,11 +12,15 @@ import { applyProfileOverrides, buildBatchClassificationRequest, classifyBatch }
 import { enrichContactEvidence, keepClassifiedItems } from './research.js';
 import { loadResearchConfig, runResearch } from './research-runner.js';
 
+const require = createRequire(import.meta.url);
+const packageInfo = require('../package.json');
+
 export function parseArgs(argv) {
   const options = { attach: false, autoConnect: false, pinTab: false, jsonl: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') return { help: true };
+    if (arg === '--version' || arg === '-v') return { version: true };
     if (!arg.startsWith('--')) throw new Error(`unknown argument: ${arg}`);
     const key = arg.slice(2).replaceAll('-', '');
     if (key === 'maxsteps') options.maxSteps = Number(argv[++i]);
@@ -270,6 +275,7 @@ if (isMainModule()) {
     let options = parseArgs(process.argv.slice(2));
     jsonl = options.jsonl;
     if (options.help) { console.log(helpText()); process.exit(0); }
+    if (options.version) { console.log(`${packageInfo.name} ${packageInfo.version}`); process.exit(0); }
     if (options.mode) validateOptions(options);
     if (options.mode === 'classify') {
       const output = await runClassificationMode(options);

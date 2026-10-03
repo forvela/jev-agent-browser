@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-10-03
+
+### Added
+
+- `jev --version` and `jev -v` CLI flags.
+
 ## 0.2.0 — 2026-10-03
 
 ### Added

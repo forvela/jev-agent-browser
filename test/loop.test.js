@@ -16,6 +16,11 @@ test('treats bounded limit as a non-error CLI exit', () => {
   assert.equal(isSuccessfulExit('error'), false);
 });
 
+test('parses version flag without requiring browser options', () => {
+  assert.deepEqual(parseArgs(['--version']), { version: true });
+  assert.deepEqual(parseArgs(['-v']), { version: true });
+});
+
 test('applies decision defaults from a CLI config without storing the key', () => {
   const options = applyCliConfig(parseArgs(['--goal', 'inspect']), {
     decision: { endpoint: 'https://openrouter.ai/api/alpha/decisions', apiKeyEnv: 'OPENROUTER_API_KEY', model: '~typesafe/jev-latest' },
